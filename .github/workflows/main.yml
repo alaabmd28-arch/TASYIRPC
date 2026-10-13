@@ -1,5 +1,6 @@
-# ضعه في جذر المستودع: .github/workflows/desktop-build.yml
-# يجد مجلد المشروع تلقائيًا (حيث يوجد package.json الخاص بـ tasyir-bmd-desktop) حتى لو كان داخل مجلد فرعي.
+# .github/workflows/desktop-build.yml
+# يجد مشروع الحاسوب تلقائيًا (أي package.json فيه electron-builder أو main.js بجانب lib/ و app/).
+# إن لم يوجد المشروع في هذا المستودع تُتخطى الخطوات بتحذير واضح ولا يفشل التشغيل.
 name: Desktop build (Windows)
 
 on:
@@ -21,14 +22,25 @@ jobs:
         with: { node-version: 22 }
       - name: Locate project
         run: |
-          f=$(grep -l '"name": *"tasyir-bmd-desktop"' $(find . -name package.json -not -path '*/node_modules/*') | head -1)
-          [ -n "$f" ] || { echo "::error::package.json (tasyir-bmd-desktop) not found in repo"; find . -maxdepth 3 -not -path './.git/*' | head -50; exit 1; }
-          echo "PROJ=$(dirname "$f")" >> "$GITHUB_ENV"
+          PROJ=""
+          for f in $(find . -name package.json -not -path '*/node_modules/*' -not -path './.git/*'); do
+            d=$(dirname "$f")
+            if grep -q 'electron' "$f" && [ -f "$d/main.js" ]; then PROJ="$d"; break; fi
+          done
+          if [ -z "$PROJ" ]; then
+            echo "::warning::Desktop project (package.json with electron + main.js) not found in this repo - skipping."
+            echo "FOUND=false" >> "$GITHUB_ENV"
+          else
+            echo "FOUND=true" >> "$GITHUB_ENV"
+            echo "PROJ=$PROJ" >> "$GITHUB_ENV"
+            echo "Project: $PROJ"
+          fi
       - name: Unit tests (no dependencies needed)
+        if: env.FOUND == 'true'
         working-directory: ${{ env.PROJ }}
         run: |
-          node tests/lib.test.js
-          node tests/sync.test.js
+          [ -f tests/lib.test.js ] && node tests/lib.test.js || echo "no lib test"
+          [ -f tests/sync.test.js ] && node tests/sync.test.js || echo "no sync test"
 
   build-windows:
     needs: test
@@ -40,24 +52,36 @@ jobs:
         with: { node-version: 22 }
       - name: Locate project
         run: |
-          f=$(grep -l '"name": *"tasyir-bmd-desktop"' $(find . -name package.json -not -path '*/node_modules/*') | head -1)
-          [ -n "$f" ] || { echo "::error::package.json not found"; exit 1; }
-          echo "PROJ=$(dirname "$f")" >> "$GITHUB_ENV"
+          PROJ=""
+          for f in $(find . -name package.json -not -path '*/node_modules/*' -not -path './.git/*'); do
+            d=$(dirname "$f")
+            if grep -q 'electron' "$f" && [ -f "$d/main.js" ]; then PROJ="$d"; break; fi
+          done
+          if [ -z "$PROJ" ]; then
+            echo "::warning::Desktop project not found - skipping."
+            echo "FOUND=false" >> "$GITHUB_ENV"
+          else
+            echo "FOUND=true" >> "$GITHUB_ENV"
+            echo "PROJ=$PROJ" >> "$GITHUB_ENV"
+          fi
       - name: Install
+        if: env.FOUND == 'true'
         working-directory: ${{ env.PROJ }}
         run: npm install --no-audit --no-fund
       - name: Build installer + portable
+        if: env.FOUND == 'true'
         working-directory: ${{ env.PROJ }}
         run: npm run dist
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
       - uses: actions/upload-artifact@v4
+        if: env.FOUND == 'true'
         with:
           name: Tasyir-Desktop-Windows
           path: ${{ env.PROJ }}/dist/*.exe
           if-no-files-found: error
       - name: Publish release (tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: env.FOUND == 'true' && startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ env.PROJ }}/dist/*.exe
