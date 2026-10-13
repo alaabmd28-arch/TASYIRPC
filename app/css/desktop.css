@@ -1,0 +1,5 @@
+/* سطح المكتب: نفس التصميم، مع تحسينات بسيطة للشاشات الكبيرة */
+@media (min-width:1000px){main{max-width:860px}}
+.tsx{text-align:center}.tsi{color:var(--pr,#0f766e);margin-bottom:6px}
+.tsres{min-height:34px;margin:6px 0 10px}
+#tsMan{flex:1}
